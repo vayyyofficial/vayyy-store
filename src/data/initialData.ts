@@ -191,11 +191,16 @@ export const INITIAL_PROMOTIONS: Promotion[] = [];
 
 export const INITIAL_PROMO_CODES: PromoCode[] = [
   {
-    id: 'promo-launch',
+    id: 'b0000001-0000-0000-0000-000000000001',
     code: 'VAYYYLAUNCH',
+    name: 'Promo Launching Vayyy Store',
     discountType: 'percentage',
     discountValue: 10,
     applicablePackageIds: ['all'],
+    maxUses: 10,
+    usedCount: 0,
+    warningThreshold: 3,
+    showPublicAnnouncement: true,
     validFrom: '2025-01-01T00:00',
     validUntil: '2027-12-31T23:59',
     isActive: true
@@ -208,7 +213,7 @@ export const INITIAL_SETTINGS: SiteSettings = {
   heroDescription: 'Butuh bantuan setup, pembuatan bot, atau pengembangan website? Vayyy Store menyediakan layanan teknis yang cepat, aman, dan berkualitas untuk kebutuhan digital kamu.',
   whatsappNumber: '6285816300442',
   discordUrl: 'https://discord.gg/S8vcsZtgRM',
-  vayyyDevUrl: 'https://vayyy.dev',
+  vayyyDevUrl: 'https://vayyy.vercel.app',
   otherTitle: 'Katalog Layanan Digital Lainnya',
   otherDescription: 'Katalog lengkap layanan Bot Discord, Minecraft Setup, Akun Premium, dan digital service lainnya tersedia eksklusif di Discord Community Vayyy Store.',
   adminPasswordHash: 'c45b4773f7d5ce22cd841afe0ff6683364c981a20c4390da56a82acafa64aafe' // SHA-256 hash of 'vayyystore2026'

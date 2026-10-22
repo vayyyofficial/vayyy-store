@@ -32,16 +32,21 @@ export interface Promotion {
   isActive: boolean;
 }
 
-export type PromoStatus = 'scheduled' | 'active' | 'expired' | 'disabled';
+export type PromoStatus = 'scheduled' | 'active' | 'expired' | 'disabled' | 'exhausted';
 
 export interface PromoCode {
   id: string;
   code: string;
+  name?: string;
   discountType: 'percentage' | 'fixed';
   discountValue: number;
   applicablePackageIds: string[];
-  validFrom: string; // ISO string / YYYY-MM-DDTHH:mm
-  validUntil: string; // ISO string / YYYY-MM-DDTHH:mm
+  maxUses: number; // Kuota awal total kupon (0 = tidak terbatas)
+  usedCount: number; // Kuota yang sudah dikonfirmasi digunakan
+  warningThreshold?: number; // Batas kuota peringatan (default: 3)
+  showPublicAnnouncement?: boolean; // Tampilkan pengumuman di halaman publik jika kuota aktif
+  validFrom?: string | null; // Opsional: ISO string / YYYY-MM-DDTHH:mm
+  validUntil?: string | null; // Opsional: ISO string / YYYY-MM-DDTHH:mm
   isActive: boolean;
 }
 

@@ -131,7 +131,7 @@ export const Navbar: React.FC<NavbarProps> = ({ vayyyDevUrl }) => {
           {/* Vayyy.Dev Button (Solid yellow background, black text, rounded, NO arrow icon) */}
           <a
             id="nav-btn-vayyy-dev"
-            href={vayyyDevUrl}
+            href={!vayyyDevUrl || vayyyDevUrl === 'https://vayyy.dev' ? 'https://vayyy.vercel.app' : vayyyDevUrl}
             target="_blank"
             rel="noopener noreferrer"
             className="vayyy-dev-btn"

@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, ArrowUp, ArrowDown, Check, X, Info, Layers, CheckCircle2 } from 'lucide-react';
 import { ServicePackage, PackageBenefitItem, BenefitType } from '../../types';
-import { saveServicePackage } from '../../services/storage';
+import { saveServicePackage, parsePackageBenefits } from '../../services/storage';
 
 interface BenefitsManagerProps {
   packages: ServicePackage[];
@@ -16,71 +16,83 @@ export const BenefitsManager: React.FC<BenefitsManagerProps> = ({ packages }) =>
   const selectedPkg = packages.find((p) => p.id === selectedPkgId) || packages[0];
 
   // Global counts
-  const allBenefitItems = packages.flatMap((p) => p.benefits || []);
-  const totalIncluded = allBenefitItems.filter((b) => (typeof b === 'string' ? true : b.type === 'included')).length;
-  const totalExcluded = allBenefitItems.filter((b) => typeof b !== 'string' && b.type === 'excluded').length;
-  const totalInfo = allBenefitItems.filter((b) => typeof b !== 'string' && b.type === 'info').length;
+  const allBenefitItems = packages.flatMap((p) => parsePackageBenefits(p.benefits));
+  const totalIncluded = allBenefitItems.filter((b) => b.type === 'included').length;
+  const totalExcluded = allBenefitItems.filter((b) => b.type === 'excluded').length;
+  const totalInfo = allBenefitItems.filter((b) => b.type === 'info').length;
 
   const handleAdd = async () => {
     if (!newText.trim() || !selectedPkg) return;
+    const current = parsePackageBenefits(selectedPkg.benefits);
     const updatedBenefits: PackageBenefitItem[] = [
-      ...(selectedPkg.benefits || []).map((b) =>
-        typeof b === 'string' ? { text: b, type: 'included' as BenefitType } : b
-      ),
+      ...current,
       { text: newText.trim(), type: newType }
     ];
 
-    await saveServicePackage({
-      ...selectedPkg,
-      benefits: updatedBenefits
-    });
-
-    setNewText('');
-    setStatusMsg({ type: 'success', text: `Benefit baru ditambahkan ke paket ${selectedPkg.name}.` });
+    try {
+      await saveServicePackage({
+        ...selectedPkg,
+        benefits: updatedBenefits
+      });
+      setNewText('');
+      setStatusMsg({ type: 'success', text: `Benefit baru ditambahkan ke paket ${selectedPkg.name}.` });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal menambahkan benefit: ${msg}` });
+    }
   };
 
   const handleRemove = async (idx: number) => {
     if (!selectedPkg) return;
-    const current = (selectedPkg.benefits || []).map((b) =>
-      typeof b === 'string' ? { text: b, type: 'included' as BenefitType } : b
-    );
+    const current = parsePackageBenefits(selectedPkg.benefits);
     const updated = current.filter((_, i) => i !== idx);
 
-    await saveServicePackage({
-      ...selectedPkg,
-      benefits: updated
-    });
-    setStatusMsg({ type: 'success', text: `Item benefit berhasil dihapus.` });
+    try {
+      await saveServicePackage({
+        ...selectedPkg,
+        benefits: updated
+      });
+      setStatusMsg({ type: 'success', text: `Item benefit berhasil dihapus.` });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal menghapus benefit: ${msg}` });
+    }
   };
 
   const handleMove = async (idx: number, dir: 'up' | 'down') => {
     if (!selectedPkg) return;
     const targetIdx = dir === 'up' ? idx - 1 : idx + 1;
-    const current = (selectedPkg.benefits || []).map((b) =>
-      typeof b === 'string' ? { text: b, type: 'included' as BenefitType } : b
-    );
+    const current = parsePackageBenefits(selectedPkg.benefits);
     if (targetIdx < 0 || targetIdx >= current.length) return;
 
     const [moved] = current.splice(idx, 1);
     current.splice(targetIdx, 0, moved);
 
-    await saveServicePackage({
-      ...selectedPkg,
-      benefits: current
-    });
+    try {
+      await saveServicePackage({
+        ...selectedPkg,
+        benefits: current
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal memindahkan benefit: ${msg}` });
+    }
   };
 
   const handleChangeType = async (idx: number, type: BenefitType) => {
     if (!selectedPkg) return;
-    const current = (selectedPkg.benefits || []).map((b) =>
-      typeof b === 'string' ? { text: b, type: 'included' as BenefitType } : b
-    );
+    const current = parsePackageBenefits(selectedPkg.benefits);
     current[idx] = { ...current[idx], type };
 
-    await saveServicePackage({
-      ...selectedPkg,
-      benefits: current
-    });
+    try {
+      await saveServicePackage({
+        ...selectedPkg,
+        benefits: current
+      });
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal mengubah tipe benefit: ${msg}` });
+    }
   };
 
   return (
@@ -243,9 +255,9 @@ export const BenefitsManager: React.FC<BenefitsManagerProps> = ({ packages }) =>
 
           {/* List of Benefit Items */}
           <div style={{ display: 'flex', flexDirection: 'column', gap: '8px' }}>
-            {(selectedPkg.benefits || []).map((item, idx) => {
-              const text = typeof item === 'string' ? item : item.text;
-              const type: BenefitType = typeof item === 'string' ? 'included' : item.type || 'included';
+            {parsePackageBenefits(selectedPkg.benefits || []).map((item, idx) => {
+              const text = item.text;
+              const type: BenefitType = item.type || 'included';
 
               return (
                 <div

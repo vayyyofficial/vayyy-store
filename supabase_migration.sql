@@ -74,6 +74,7 @@ CREATE INDEX IF NOT EXISTS idx_promotions_active ON public.promotions (is_active
 CREATE TABLE IF NOT EXISTS public.promo_codes (
     id UUID PRIMARY KEY DEFAULT gen_random_uuid(),
     code TEXT UNIQUE NOT NULL,
+    name TEXT,
     discount_type TEXT NOT NULL CHECK (discount_type IN ('percentage', 'fixed')),
     discount_value BIGINT NOT NULL CHECK (discount_value >= 0),
     applicable_package_ids TEXT[] DEFAULT '{"all"}',
@@ -81,11 +82,14 @@ CREATE TABLE IF NOT EXISTS public.promo_codes (
     valid_until DATE,
     max_uses INT DEFAULT 0,
     used_count INT DEFAULT 0,
+    warning_threshold INT DEFAULT 3,
+    show_public_announcement BOOLEAN DEFAULT TRUE,
     is_active BOOLEAN DEFAULT TRUE,
     created_at TIMESTAMPTZ DEFAULT NOW(),
     updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 CREATE INDEX IF NOT EXISTS idx_promo_codes_code ON public.promo_codes (code);
+CREATE INDEX IF NOT EXISTS idx_promo_codes_active_quota ON public.promo_codes (is_active, used_count, max_uses);
 
 -- Tabel FAQ
 CREATE TABLE IF NOT EXISTS public.faqs (
@@ -105,7 +109,7 @@ CREATE TABLE IF NOT EXISTS public.site_settings (
     hero_description TEXT NOT NULL,
     whatsapp_number TEXT NOT NULL DEFAULT '6285816300442',
     discord_url TEXT NOT NULL DEFAULT 'https://discord.gg/S8vcsZtgRM',
-    vayyy_dev_url TEXT NOT NULL DEFAULT 'https://vayyy.dev',
+    vayyy_dev_url TEXT NOT NULL DEFAULT 'https://vayyy.vercel.app',
     other_title TEXT NOT NULL DEFAULT 'Katalog Layanan Digital Lainnya',
     other_description TEXT NOT NULL,
     admin_password_hash TEXT,
@@ -242,5 +246,5 @@ ON CONFLICT (id) DO NOTHING;
 -- Seed default site settings jika belum ada
 INSERT INTO public.site_settings (id, site_name, hero_title, hero_description, whatsapp_number, discord_url, vayyy_dev_url, other_title, other_description, admin_password_hash)
 VALUES
-(1, 'Vayyy Store', 'Solusi Digital Profesional', 'Butuh bantuan setup, pembuatan bot, atau pengembangan website? Vayyy Store menyediakan layanan teknis yang cepat, aman, dan berkualitas untuk kebutuhan digital kamu.', '6285816300442', 'https://discord.gg/S8vcsZtgRM', 'https://vayyy.dev', 'Katalog Layanan Digital Lainnya', 'Katalog lengkap layanan Bot Discord, Minecraft Setup, Akun Premium, dan digital service lainnya tersedia eksklusif di Discord Community Vayyy Store.', 'c45b4773f7d5ce22cd841afe0ff6683364c981a20c4390da56a82acafa64aafe')
+(1, 'Vayyy Store', 'Solusi Digital Profesional', 'Butuh bantuan setup, pembuatan bot, atau pengembangan website? Vayyy Store menyediakan layanan teknis yang cepat, aman, dan berkualitas untuk kebutuhan digital kamu.', '6285816300442', 'https://discord.gg/S8vcsZtgRM', 'https://vayyy.vercel.app', 'Katalog Layanan Digital Lainnya', 'Katalog lengkap layanan Bot Discord, Minecraft Setup, Akun Premium, dan digital service lainnya tersedia eksklusif di Discord Community Vayyy Store.', 'c45b4773f7d5ce22cd841afe0ff6683364c981a20c4390da56a82acafa64aafe')
 ON CONFLICT (id) DO NOTHING;

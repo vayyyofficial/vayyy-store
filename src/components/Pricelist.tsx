@@ -1,19 +1,21 @@
 import React, { useState } from 'react';
 import { Check, X, Info, Shield, Tag, Layers, CheckCircle2, AlertCircle } from 'lucide-react';
-import { ServicePackage, PromoCode, PackageBenefitItem } from '../types';
-import { validatePromoCode, PromoValidationResult } from '../services/storage';
+import { ServicePackage, PromoCode, PackageBenefitItem, BenefitType } from '../types';
+import { validatePromoCode, PromoValidationResult, parsePackageBenefits, getPromoQuotaInfo } from '../services/storage';
 import { WhatsAppIcon } from './BrandIcons';
 
 interface PricelistProps {
   packages: ServicePackage[];
   whatsappNumber: string;
   onOpenOther: () => void;
+  promoCodes?: PromoCode[];
 }
 
 export const Pricelist: React.FC<PricelistProps> = ({
   packages,
   whatsappNumber,
-  onOpenOther
+  onOpenOther,
+  promoCodes = []
 }) => {
   const [promoInput, setPromoInput] = useState('');
   const [promoValidation, setPromoValidation] = useState<PromoValidationResult | null>(null);
@@ -138,9 +140,11 @@ export const Pricelist: React.FC<PricelistProps> = ({
     );
   };
 
-  const renderBenefitItem = (item: PackageBenefitItem | string, index: number) => {
-    const text = typeof item === 'string' ? item : item.text;
-    const type = typeof item === 'string' ? 'included' : item.type || 'included';
+  const renderBenefitItem = (rawItem: PackageBenefitItem | string, index: number) => {
+    const parsedList = parsePackageBenefits([rawItem]);
+    const parsed = parsedList[0] || (typeof rawItem === 'string' ? { text: rawItem, type: 'included' as BenefitType } : rawItem);
+    const text = parsed.text;
+    const type = parsed.type || 'included';
 
     let icon = <Check size={16} className="benefit-icon icon-included" />;
     let itemClass = 'benefit-item included';
@@ -264,6 +268,80 @@ export const Pricelist: React.FC<PricelistProps> = ({
             Pilih paket pembuatan website profesional yang dirancang sesuai dengan skala, anggaran, dan target digital kamu.
           </p>
         </div>
+
+        {/* Public Promo Quota Announcements */}
+        {(() => {
+          const activeAnnouncements = (promoCodes || []).filter((p) => {
+            if (!p.isActive || p.showPublicAnnouncement === false) return false;
+            const q = getPromoQuotaInfo(p);
+            return !q.isUnlimited && q.remainingQuota > 0;
+          });
+
+          if (activeAnnouncements.length === 0) return null;
+
+          return (
+            <div className="promo-announcement-container" style={{ marginBottom: '22px' }}>
+              {activeAnnouncements.map((promo) => {
+                const q = getPromoQuotaInfo(promo);
+                const discountLabel =
+                  promo.discountType === 'percentage'
+                    ? `${promo.discountValue}%`
+                    : `Rp${promo.discountValue.toLocaleString('id-ID')}`;
+
+                return (
+                  <div
+                    key={promo.id}
+                    className="promo-alert success"
+                    style={{
+                      display: 'flex',
+                      alignItems: 'center',
+                      justifyContent: 'space-between',
+                      padding: '12px 18px',
+                      borderRadius: 'var(--radius-md)',
+                      background: q.isLowQuota ? 'rgba(245, 196, 0, 0.12)' : 'rgba(46, 204, 113, 0.12)',
+                      border: q.isLowQuota ? '1px solid rgba(245, 196, 0, 0.35)' : '1px solid rgba(46, 204, 113, 0.35)',
+                      color: 'var(--color-text-white)',
+                      fontSize: '0.9rem',
+                      flexWrap: 'wrap',
+                      gap: '10px'
+                    }}
+                  >
+                    <div style={{ display: 'flex', alignItems: 'center', gap: '10px' }}>
+                      <Tag size={18} color={q.isLowQuota ? '#F5C400' : '#2ecc71'} />
+                      <span>
+                        {q.isLowQuota ? (
+                          <strong style={{ color: '#F5C400', marginRight: '6px' }}>⚡ Promo Terbatas!</strong>
+                        ) : (
+                          <strong style={{ color: '#2ecc71', marginRight: '6px' }}>🎉 Promo Spesial!</strong>
+                        )}
+                        Gunakan kupon <code style={{ color: 'var(--color-primary)', fontWeight: 700, padding: '2px 6px', background: 'rgba(255,255,255,0.06)', borderRadius: '4px' }}>{promo.code}</code> untuk diskon {discountLabel}.{' '}
+                        Tersisa <strong style={{ color: q.isLowQuota ? '#F5C400' : '#2ecc71' }}>{q.remainingQuota} kupon</strong> untuk pelanggan berikutnya!
+                      </span>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPromoInput(promo.code);
+                      }}
+                      style={{
+                        background: 'none',
+                        border: '1px solid var(--color-primary-border)',
+                        color: 'var(--color-primary)',
+                        padding: '4px 12px',
+                        borderRadius: 'var(--radius-pill)',
+                        fontSize: '0.78rem',
+                        fontWeight: 600,
+                        cursor: 'pointer'
+                      }}
+                    >
+                      Gunakan Kupon
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          );
+        })()}
 
         {/* Toolbar: Promo Code Input & Other Services Tab */}
         <div className="pricelist-toolbar">

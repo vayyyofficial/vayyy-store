@@ -194,6 +194,7 @@ export const App: React.FC = () => {
           packages={packages}
           whatsappNumber={settings.whatsappNumber}
           onOpenOther={() => setIsOtherOpen(true)}
+          promoCodes={promoCodes}
         />
 
         {/* Testimonials Section */}

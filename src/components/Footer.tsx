@@ -109,7 +109,7 @@ export const Footer: React.FC<FooterProps> = ({
               </li>
               <li>
                 <a
-                  href={vayyyDevUrl}
+                  href={!vayyyDevUrl || vayyyDevUrl === 'https://vayyy.dev' ? 'https://vayyy.vercel.app' : vayyyDevUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                   title="Website Portfolio Utama Vayyy.Dev"

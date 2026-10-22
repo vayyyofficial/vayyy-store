@@ -1,7 +1,7 @@
 import React, { useState } from 'react';
 import { Plus, Trash2, Edit2, ArrowUp, ArrowDown, Check, X, Info, Shield, Star } from 'lucide-react';
 import { ServicePackage, PackageBenefitItem, BenefitType } from '../../types';
-import { saveServicePackage, deleteServicePackage } from '../../services/storage';
+import { saveServicePackage, deleteServicePackage, parsePackageBenefits } from '../../services/storage';
 
 interface PackagesManagerProps {
   packages: ServicePackage[];
@@ -13,21 +13,8 @@ export const PackagesManager: React.FC<PackagesManagerProps> = ({ packages }) =>
   const [newBenefitType, setNewBenefitType] = useState<BenefitType>('included');
   const [statusMsg, setStatusMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
-  const normalizeBenefits = (benefits: any[]): PackageBenefitItem[] => {
-    if (!Array.isArray(benefits)) return [];
-    return benefits.map((b) => {
-      if (typeof b === 'string') {
-        return { text: b, type: 'included' as BenefitType };
-      }
-      return {
-        text: b.text || '',
-        type: (b.type === 'excluded' || b.type === 'info' ? b.type : 'included') as BenefitType
-      };
-    });
-  };
-
   const handleEdit = (pkg: ServicePackage) => {
-    setEditingPkg({ ...pkg, benefits: normalizeBenefits(pkg.benefits) });
+    setEditingPkg({ ...pkg, benefits: parsePackageBenefits(pkg.benefits) });
     setStatusMsg(null);
   };
 
@@ -103,21 +90,36 @@ export const PackagesManager: React.FC<PackagesManagerProps> = ({ packages }) =>
       return;
     }
 
-    await saveServicePackage(editingPkg);
-    setStatusMsg({ type: 'success', text: `Paket ${editingPkg.name} berhasil disimpan!` });
-    setEditingPkg(null);
+    try {
+      await saveServicePackage(editingPkg);
+      setStatusMsg({ type: 'success', text: `Paket ${editingPkg.name} berhasil disimpan!` });
+      setEditingPkg(null);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal menyimpan paket: ${msg}` });
+    }
   };
 
   const handleDelete = async (pkg: ServicePackage) => {
     if (confirm(`Yakin ingin menghapus paket "${pkg.name}"?`)) {
-      await deleteServicePackage(pkg.id);
-      setStatusMsg({ type: 'success', text: `Paket ${pkg.name} berhasil dihapus.` });
+      try {
+        await deleteServicePackage(pkg.id);
+        setStatusMsg({ type: 'success', text: `Paket ${pkg.name} berhasil dihapus.` });
+      } catch (err: unknown) {
+        const msg = err instanceof Error ? err.message : String(err);
+        setStatusMsg({ type: 'error', text: `Gagal menghapus paket: ${msg}` });
+      }
     }
   };
 
   const handleToggleActive = async (pkg: ServicePackage) => {
-    const updated = { ...pkg, isActive: !pkg.isActive };
-    await saveServicePackage(updated);
+    try {
+      const updated = { ...pkg, isActive: !pkg.isActive };
+      await saveServicePackage(updated);
+    } catch (err: unknown) {
+      const msg = err instanceof Error ? err.message : String(err);
+      setStatusMsg({ type: 'error', text: `Gagal memperbarui status: ${msg}` });
+    }
   };
 
   return (

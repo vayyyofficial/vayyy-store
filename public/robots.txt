@@ -1,0 +1,4 @@
+User-agent: *
+Allow: /
+
+Sitemap: https://vayyy.vercel.app/sitemap.xml

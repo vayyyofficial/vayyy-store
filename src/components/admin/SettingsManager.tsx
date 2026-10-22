@@ -161,11 +161,12 @@ export const SettingsManager: React.FC<SettingsManagerProps> = ({
           </div>
 
           <div className="admin-form-group">
-            <label>URL Publik Vayyy.Dev</label>
+            <label>URL Tujuan Vayyy.Dev (Teks Display: vayyy.dev)</label>
             <input
               type="url"
               value={formSettings.vayyyDevUrl}
               onChange={(e) => setFormSettings({ ...formSettings, vayyyDevUrl: e.target.value })}
+              placeholder="https://vayyy.vercel.app"
               required
             />
           </div>

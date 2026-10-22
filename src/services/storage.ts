@@ -1,5 +1,7 @@
 import {
   ServicePackage,
+  PackageBenefitItem,
+  BenefitType,
   FaqItem,
   SiteSettings,
   Promotion,
@@ -98,10 +100,103 @@ export function initSeedData(): void {
   }
 }
 
+// ---------------- Benefit Normalization & Parsing ----------------
+
+/**
+ * Normalizes package benefits into a clean array of PackageBenefitItem.
+ * Handles:
+ * - Plain objects: { text: "...", type: "included" }
+ * - JSON stringified items: '{"text":"...","type":"included"}'
+ * - Double-stringified JSON items
+ * - Plain strings from legacy seeds: 'Maksimal 2 sub-halaman'
+ * - Stringified JSON arrays
+ */
+export function parsePackageBenefits(raw: unknown): PackageBenefitItem[] {
+  if (!raw) return [];
+  let list: unknown = raw;
+  if (typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) list = parsed;
+        else list = [raw];
+      } catch {
+        list = [raw];
+      }
+    } else {
+      list = [raw];
+    }
+  }
+  if (!Array.isArray(list)) return [];
+
+  const parseItem = (item: unknown): PackageBenefitItem | null => {
+    if (!item) return null;
+    let text = '';
+    let type: BenefitType = 'included';
+
+    if (typeof item === 'object' && item !== null) {
+      const obj = item as Record<string, unknown>;
+      text = String(obj.text ?? '').trim();
+      if (obj.type === 'excluded' || obj.type === 'info' || obj.type === 'included') {
+        type = obj.type;
+      }
+    } else if (typeof item === 'string') {
+      const trimmed = item.trim();
+      if (trimmed.startsWith('{') && trimmed.endsWith('}')) {
+        try {
+          const parsed = JSON.parse(trimmed);
+          if (parsed && typeof parsed === 'object') {
+            text = String(parsed.text ?? '').trim();
+            if (parsed.type === 'excluded' || parsed.type === 'info' || parsed.type === 'included') {
+              type = parsed.type;
+            }
+          } else {
+            text = trimmed;
+          }
+        } catch {
+          text = trimmed;
+        }
+      } else {
+        text = trimmed;
+      }
+    }
+
+    // Protection against legacy double-encoded JSON string inside text
+    while (typeof text === 'string' && text.trim().startsWith('{') && text.trim().endsWith('}')) {
+      try {
+        const inner = JSON.parse(text);
+        if (inner && typeof inner === 'object' && inner.text) {
+          text = String(inner.text).trim();
+          if (inner.type === 'excluded' || inner.type === 'info' || inner.type === 'included') {
+            type = inner.type;
+          }
+        } else {
+          break;
+        }
+      } catch {
+        break;
+      }
+    }
+
+    if (!['included', 'excluded', 'info'].includes(type)) {
+      type = 'included';
+    }
+
+    if (!text) return null;
+    return { text, type };
+  };
+
+  return (list as unknown[]).map(parseItem).filter((b): b is PackageBenefitItem => b !== null);
+}
+
 // ---------------- Synchronous Cache Getters for Instant Performance (SWR) ----------------
 export function getInitialCachedPackages(): ServicePackage[] {
   const all = loadLocal<ServicePackage[]>(STORAGE_KEYS.PACKAGES, INITIAL_PACKAGES);
-  return all.filter((p) => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+  return all
+    .filter((p) => p.isActive)
+    .map((p) => ({ ...p, benefits: parsePackageBenefits(p.benefits) }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export function getInitialCachedTestimonials(): Testimonial[] {
@@ -118,7 +213,11 @@ export function getInitialCachedFaqs(): FaqItem[] {
 }
 
 export function getInitialCachedSettings(): SiteSettings {
-  return loadLocal<SiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+  const loaded = loadLocal<SiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+  if (loaded.vayyyDevUrl === 'https://vayyy.dev') {
+    loaded.vayyyDevUrl = 'https://vayyy.vercel.app';
+  }
+  return loaded;
 }
 
 export function getInitialCachedPromoCodes(): PromoCode[] {
@@ -140,16 +239,16 @@ export async function getPublicPackages(): Promise<ServicePackage[]> {
           id: item.id,
           name: item.name,
           subtitle: item.subtitle,
-          price: item.price,
-          isStartingPrice: item.is_starting_price,
+          price: Number(item.price),
+          isStartingPrice: Boolean(item.is_starting_price),
           description: item.description,
           warranty: item.warranty,
-          badge: item.badge,
-          isFeatured: item.is_featured,
-          benefits: item.benefits || [],
-          isActive: item.is_active,
-          sortOrder: item.sort_order,
-          note: item.note
+          badge: item.badge || undefined,
+          isFeatured: Boolean(item.is_featured),
+          benefits: parsePackageBenefits(item.benefits),
+          isActive: Boolean(item.is_active),
+          sortOrder: Number(item.sort_order),
+          note: item.note || undefined
         }));
       }
     } catch (e) {
@@ -158,7 +257,10 @@ export async function getPublicPackages(): Promise<ServicePackage[]> {
   }
 
   const all = loadLocal<ServicePackage[]>(STORAGE_KEYS.PACKAGES, INITIAL_PACKAGES);
-  return all.filter((p) => p.isActive).sort((a, b) => a.sortOrder - b.sortOrder);
+  return all
+    .filter((p) => p.isActive)
+    .map((p) => ({ ...p, benefits: parsePackageBenefits(p.benefits) }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export async function getPublicFaqs(): Promise<FaqItem[]> {
@@ -259,13 +361,14 @@ export async function getSiteSettings(): Promise<SiteSettings> {
         .limit(1)
         .single();
       if (!error && data) {
+        const rawUrl = data.vayyy_dev_url || INITIAL_SETTINGS.vayyyDevUrl;
         return {
           siteName: data.site_name || INITIAL_SETTINGS.siteName,
           heroTitle: data.hero_title || INITIAL_SETTINGS.heroTitle,
           heroDescription: data.hero_description || INITIAL_SETTINGS.heroDescription,
           whatsappNumber: data.whatsapp_number || INITIAL_SETTINGS.whatsappNumber,
           discordUrl: data.discord_url || INITIAL_SETTINGS.discordUrl,
-          vayyyDevUrl: data.vayyy_dev_url || INITIAL_SETTINGS.vayyyDevUrl,
+          vayyyDevUrl: rawUrl === 'https://vayyy.dev' ? 'https://vayyy.vercel.app' : rawUrl,
           otherTitle: data.other_title || INITIAL_SETTINGS.otherTitle,
           otherDescription: data.other_description || INITIAL_SETTINGS.otherDescription,
           adminPasswordHash: data.admin_password_hash || INITIAL_SETTINGS.adminPasswordHash
@@ -276,7 +379,11 @@ export async function getSiteSettings(): Promise<SiteSettings> {
     }
   }
 
-  return loadLocal<SiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+  const loaded = loadLocal<SiteSettings>(STORAGE_KEYS.SETTINGS, INITIAL_SETTINGS);
+  if (loaded.vayyyDevUrl === 'https://vayyy.dev') {
+    loaded.vayyyDevUrl = 'https://vayyy.vercel.app';
+  }
+  return loaded;
 }
 
 // ---------------- Promo Code Validation & Status ----------------
@@ -313,14 +420,73 @@ export function getServerTime(): Date {
   return new Date(Date.now() + serverTimeOffsetMs);
 }
 
-export function getPromoStatus(promo: PromoCode, referenceDate: Date = getServerTime()): 'scheduled' | 'active' | 'expired' | 'disabled' {
-  if (!promo.isActive) return 'disabled';
-  const nowMs = referenceDate.getTime();
-  const startMs = promo.validFrom ? new Date(promo.validFrom).getTime() : 0;
-  const endMs = promo.validUntil ? new Date(promo.validUntil).getTime() : Infinity;
+export interface PromoQuotaInfo {
+  maxUses: number;
+  usedCount: number;
+  remainingQuota: number;
+  isUnlimited: boolean;
+  isExhausted: boolean;
+  isLowQuota: boolean;
+  warningThreshold: number;
+}
 
-  if (nowMs < startMs) return 'scheduled';
-  if (nowMs > endMs) return 'expired';
+export function getPromoQuotaInfo(promo: PromoCode): PromoQuotaInfo {
+  const maxUses = Number(promo.maxUses ?? 0);
+  const usedCount = Number(promo.usedCount ?? 0);
+  const isUnlimited = maxUses <= 0;
+  const remainingQuota = isUnlimited ? Infinity : Math.max(0, maxUses - usedCount);
+  const isExhausted = !isUnlimited && remainingQuota <= 0;
+  const threshold = Number(promo.warningThreshold ?? 3);
+  const isLowQuota = !isUnlimited && !isExhausted && remainingQuota <= threshold;
+
+  return {
+    maxUses,
+    usedCount,
+    remainingQuota,
+    isUnlimited,
+    isExhausted,
+    isLowQuota,
+    warningThreshold: threshold
+  };
+}
+
+export function mapDbRowToPromoCode(d: Record<string, any>): PromoCode {
+  return {
+    id: d.id,
+    code: d.code,
+    name: d.name || d.code,
+    discountType: d.discount_type || 'percentage',
+    discountValue: Number(d.discount_value || 0),
+    applicablePackageIds: Array.isArray(d.applicable_package_ids) ? d.applicable_package_ids : ['all'],
+    validFrom: d.valid_from || null,
+    validUntil: d.valid_until || null,
+    maxUses: Number(d.max_uses ?? 0),
+    usedCount: Number(d.used_count ?? 0),
+    warningThreshold: Number(d.warning_threshold ?? 3),
+    showPublicAnnouncement: d.show_public_announcement !== false,
+    isActive: Boolean(d.is_active)
+  };
+}
+
+export function getPromoStatus(
+  promo: PromoCode,
+  referenceDate: Date = getServerTime()
+): 'active' | 'scheduled' | 'expired' | 'disabled' | 'exhausted' {
+  if (!promo.isActive) return 'disabled';
+
+  const quota = getPromoQuotaInfo(promo);
+  if (quota.isExhausted) return 'exhausted';
+
+  const nowMs = referenceDate.getTime();
+  if (promo.validFrom) {
+    const startMs = new Date(promo.validFrom).getTime();
+    if (!isNaN(startMs) && nowMs < startMs) return 'scheduled';
+  }
+  if (promo.validUntil) {
+    const endMs = new Date(promo.validUntil).getTime();
+    if (!isNaN(endMs) && nowMs > endMs) return 'expired';
+  }
+
   return 'active';
 }
 
@@ -349,16 +515,7 @@ export async function validatePromoCode(
         .eq('code', cleanCode)
         .limit(1);
       if (!error && data && data.length > 0) {
-        promoList = data.map((d) => ({
-          id: d.id,
-          code: d.code,
-          discountType: d.discount_type,
-          discountValue: d.discount_value,
-          applicablePackageIds: d.applicable_package_ids || ['all'],
-          validFrom: d.valid_from,
-          validUntil: d.valid_until,
-          isActive: d.is_active
-        }));
+        promoList = data.map(mapDbRowToPromoCode);
       }
     } catch (e) {
       console.warn('Supabase promo validation error:', e);
@@ -378,19 +535,31 @@ export async function validatePromoCode(
     return { valid: false, message: 'Promo sedang dinonaktifkan.' };
   }
 
+  const quota = getPromoQuotaInfo(promo);
+  if (quota.isExhausted) {
+    return { valid: false, message: 'Maaf, kuota kupon promo ini sudah habis.' };
+  }
+
   const nowMs = now.getTime();
-  const startMs = promo.validFrom ? new Date(promo.validFrom).getTime() : 0;
-  const endMs = promo.validUntil ? new Date(promo.validUntil).getTime() : Infinity;
-
-  if (nowMs < startMs) {
-    return { valid: false, message: 'Promo belum dimulai.' };
+  if (promo.validFrom) {
+    const startMs = new Date(promo.validFrom).getTime();
+    if (!isNaN(startMs) && nowMs < startMs) {
+      return { valid: false, message: 'Promo belum dimulai.' };
+    }
   }
 
-  if (nowMs > endMs) {
-    return { valid: false, message: 'Promo sudah kedaluwarsa.' };
+  if (promo.validUntil) {
+    const endMs = new Date(promo.validUntil).getTime();
+    if (!isNaN(endMs) && nowMs > endMs) {
+      return { valid: false, message: 'Promo sudah kedaluwarsa.' };
+    }
   }
 
-  if (!promo.applicablePackageIds.includes('all') && !promo.applicablePackageIds.includes(packageId)) {
+  if (
+    packageId !== 'all' &&
+    !promo.applicablePackageIds.includes('all') &&
+    !promo.applicablePackageIds.includes(packageId)
+  ) {
     return { valid: false, message: 'Promo tidak berlaku untuk paket ini.' };
   }
 
@@ -408,9 +577,13 @@ export async function validatePromoCode(
   discount = Math.max(0, Math.min(discount, packagePrice));
   const finalPrice = Math.max(0, packagePrice - discount);
 
+  const quotaMessage = quota.isUnlimited
+    ? ''
+    : ` (Tersisa ${quota.remainingQuota} kupon)`;
+
   return {
     valid: true,
-    message: 'Kode promo berhasil diterapkan.',
+    message: `Kode promo "${promo.code}" berhasil diterapkan!${quotaMessage}`,
     promoCode: promo,
     discountAmount: discount,
     finalPrice
@@ -553,47 +726,113 @@ export async function updateAdminPassword(oldPass: string, newPass: string): Pro
 // ---------------- Admin CRUD Operations ----------------
 
 export async function getAllPackages(): Promise<ServicePackage[]> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('service_packages')
+        .select('*')
+        .order('sort_order', { ascending: true });
+      if (!error && data && data.length > 0) {
+        const mapped: ServicePackage[] = data.map((item) => ({
+          id: item.id,
+          name: item.name,
+          subtitle: item.subtitle,
+          price: Number(item.price),
+          isStartingPrice: Boolean(item.is_starting_price),
+          description: item.description,
+          warranty: item.warranty,
+          badge: item.badge || undefined,
+          isFeatured: Boolean(item.is_featured),
+          benefits: parsePackageBenefits(item.benefits),
+          isActive: Boolean(item.is_active),
+          sortOrder: Number(item.sort_order),
+          note: item.note || undefined
+        }));
+        saveLocal(STORAGE_KEYS.PACKAGES, mapped);
+        return mapped;
+      }
+    } catch (e) {
+      console.warn('Supabase getAllPackages error:', e);
+    }
+  }
+
   const all = loadLocal<ServicePackage[]>(STORAGE_KEYS.PACKAGES, INITIAL_PACKAGES);
-  return all.sort((a, b) => a.sortOrder - b.sortOrder);
+  return all
+    .map((p) => ({ ...p, benefits: parsePackageBenefits(p.benefits) }))
+    .sort((a, b) => a.sortOrder - b.sortOrder);
 }
 
 export async function saveServicePackage(pkg: ServicePackage): Promise<void> {
-  const all = await getAllPackages();
-  const index = all.findIndex((p) => p.id === pkg.id);
-  if (index >= 0) {
-    all[index] = pkg;
-  } else {
-    all.push(pkg);
+  if (!pkg.name || !pkg.name.trim()) {
+    throw new Error('Nama paket tidak boleh kosong.');
   }
-  saveLocal(STORAGE_KEYS.PACKAGES, all);
+  if (typeof pkg.price !== 'number' || pkg.price < 0 || isNaN(pkg.price)) {
+    throw new Error('Harga paket tidak valid.');
+  }
+  const cleanBenefits = parsePackageBenefits(pkg.benefits);
+  if (cleanBenefits.length === 0) {
+    throw new Error('Paket harus memiliki minimal satu benefit.');
+  }
+
+  const sanitizedPkg: ServicePackage = {
+    ...pkg,
+    name: pkg.name.trim(),
+    subtitle: pkg.subtitle.trim(),
+    description: pkg.description.trim(),
+    warranty: pkg.warranty.trim(),
+    badge: pkg.badge ? pkg.badge.trim() : undefined,
+    note: pkg.note ? pkg.note.trim() : undefined,
+    benefits: cleanBenefits
+  };
 
   if (isSupabaseConfigured() && supabase) {
-    await supabase.from('service_packages').upsert({
-      id: pkg.id,
-      name: pkg.name,
-      subtitle: pkg.subtitle,
-      price: pkg.price,
-      is_starting_price: pkg.isStartingPrice || false,
-      description: pkg.description,
-      warranty: pkg.warranty,
-      badge: pkg.badge || null,
-      is_featured: pkg.isFeatured || false,
-      benefits: pkg.benefits,
-      is_active: pkg.isActive,
-      sort_order: pkg.sortOrder,
-      note: pkg.note || null
+    const { error } = await supabase.from('service_packages').upsert({
+      id: sanitizedPkg.id,
+      name: sanitizedPkg.name,
+      subtitle: sanitizedPkg.subtitle,
+      price: sanitizedPkg.price,
+      is_starting_price: Boolean(sanitizedPkg.isStartingPrice),
+      description: sanitizedPkg.description,
+      warranty: sanitizedPkg.warranty,
+      badge: sanitizedPkg.badge || null,
+      is_featured: Boolean(sanitizedPkg.isFeatured),
+      benefits: sanitizedPkg.benefits,
+      is_active: Boolean(sanitizedPkg.isActive),
+      sort_order: Number(sanitizedPkg.sortOrder),
+      note: sanitizedPkg.note || null,
+      updated_at: new Date().toISOString()
     });
+
+    if (error) {
+      console.error('Supabase error saving service package:', error);
+      throw new Error(`Database Supabase: ${error.message}`);
+    }
   }
+
+  const all = loadLocal<ServicePackage[]>(STORAGE_KEYS.PACKAGES, INITIAL_PACKAGES);
+  const index = all.findIndex((p) => p.id === sanitizedPkg.id);
+  if (index >= 0) {
+    all[index] = sanitizedPkg;
+  } else {
+    all.push(sanitizedPkg);
+  }
+  saveLocal(STORAGE_KEYS.PACKAGES, all);
+  notifyDataUpdated();
 }
 
 export async function deleteServicePackage(id: string): Promise<void> {
-  const all = await getAllPackages();
+  if (isSupabaseConfigured() && supabase) {
+    const { error } = await supabase.from('service_packages').delete().eq('id', id);
+    if (error) {
+      console.error('Supabase error deleting service package:', error);
+      throw new Error(`Database Supabase: ${error.message}`);
+    }
+  }
+
+  const all = loadLocal<ServicePackage[]>(STORAGE_KEYS.PACKAGES, INITIAL_PACKAGES);
   const filtered = all.filter((p) => p.id !== id);
   saveLocal(STORAGE_KEYS.PACKAGES, filtered);
-
-  if (isSupabaseConfigured() && supabase) {
-    await supabase.from('service_packages').delete().eq('id', id);
-  }
+  notifyDataUpdated();
 }
 
 export async function getAllTestimonials(): Promise<Testimonial[]> {
@@ -712,41 +951,238 @@ export async function deletePromotion(id: string): Promise<void> {
 }
 
 export async function getAllPromoCodes(): Promise<PromoCode[]> {
+  if (isSupabaseConfigured() && supabase) {
+    try {
+      const { data, error } = await supabase
+        .from('promo_codes')
+        .select('*')
+        .order('created_at', { ascending: false });
+      if (!error && data) {
+        const mapped = data.map(mapDbRowToPromoCode);
+        saveLocal(STORAGE_KEYS.PROMO_CODES, mapped);
+        return mapped;
+      }
+    } catch (e) {
+      console.warn('Supabase getAllPromoCodes error:', e);
+    }
+  }
+
   return loadLocal<PromoCode[]>(STORAGE_KEYS.PROMO_CODES, INITIAL_PROMO_CODES);
 }
 
 export async function savePromoCode(code: PromoCode): Promise<void> {
-  const all = await getAllPromoCodes();
-  const index = all.findIndex((c) => c.id === code.id);
-  if (index >= 0) {
-    all[index] = code;
-  } else {
-    all.push(code);
+  const cleanCode = code.code.trim().toUpperCase();
+  if (!cleanCode) {
+    throw new Error('Kode promo tidak boleh kosong.');
   }
-  saveLocal(STORAGE_KEYS.PROMO_CODES, all);
+  if (code.discountValue <= 0) {
+    throw new Error('Nilai diskon harus lebih besar dari 0.');
+  }
+
+  // Ensure ID is a valid UUID
+  const isValidUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(code.id);
+  const safeId = isValidUuid ? code.id : crypto.randomUUID();
+
+  const maxUses = Math.max(0, Number(code.maxUses || 0));
+  const usedCount = Math.max(0, Number(code.usedCount || 0));
+
+  const sanitized: PromoCode = {
+    ...code,
+    id: safeId,
+    code: cleanCode,
+    name: code.name ? code.name.trim() : cleanCode,
+    maxUses,
+    usedCount,
+    warningThreshold: Math.max(1, Number(code.warningThreshold ?? 3)),
+    showPublicAnnouncement: code.showPublicAnnouncement !== false,
+    validFrom: code.validFrom || null,
+    validUntil: code.validUntil || null
+  };
 
   if (isSupabaseConfigured() && supabase) {
-    await supabase.from('promo_codes').upsert({
-      id: code.id,
-      code: code.code,
-      discount_type: code.discountType,
-      discount_value: code.discountValue,
-      applicable_package_ids: code.applicablePackageIds,
-      valid_from: code.validFrom,
-      valid_until: code.validUntil,
-      is_active: code.isActive
-    });
+    const fullPayload = {
+      id: sanitized.id,
+      code: sanitized.code,
+      name: sanitized.name,
+      discount_type: sanitized.discountType,
+      discount_value: sanitized.discountValue,
+      applicable_package_ids: sanitized.applicablePackageIds,
+      valid_from: sanitized.validFrom,
+      valid_until: sanitized.validUntil,
+      max_uses: sanitized.maxUses,
+      used_count: sanitized.usedCount,
+      warning_threshold: sanitized.warningThreshold,
+      show_public_announcement: sanitized.showPublicAnnouncement,
+      is_active: sanitized.isActive,
+      updated_at: new Date().toISOString()
+    };
+
+    const { error } = await supabase.from('promo_codes').upsert(fullPayload);
+    if (error) {
+      // If column doesn't exist yet in Supabase (PGRST204), fallback to core columns
+      if (error.code === 'PGRST204') {
+        const corePayload = {
+          id: sanitized.id,
+          code: sanitized.code,
+          discount_type: sanitized.discountType,
+          discount_value: sanitized.discountValue,
+          applicable_package_ids: sanitized.applicablePackageIds,
+          valid_from: sanitized.validFrom,
+          valid_until: sanitized.validUntil,
+          max_uses: sanitized.maxUses,
+          used_count: sanitized.usedCount,
+          is_active: sanitized.isActive,
+          updated_at: new Date().toISOString()
+        };
+        const { error: coreErr } = await supabase.from('promo_codes').upsert(corePayload);
+        if (coreErr) {
+          console.error('Supabase savePromoCode core fallback error:', coreErr);
+          throw new Error(`Database Supabase: ${coreErr.message}`);
+        }
+      } else {
+        console.error('Supabase savePromoCode error:', error);
+        throw new Error(`Database Supabase: ${error.message}`);
+      }
+    }
   }
+
+  const all = loadLocal<PromoCode[]>(STORAGE_KEYS.PROMO_CODES, INITIAL_PROMO_CODES);
+  const index = all.findIndex((c) => c.id === sanitized.id || c.code === sanitized.code);
+  if (index >= 0) {
+    all[index] = sanitized;
+  } else {
+    all.push(sanitized);
+  }
+  saveLocal(STORAGE_KEYS.PROMO_CODES, all);
+  notifyDataUpdated();
 }
 
 export async function deletePromoCode(id: string): Promise<void> {
-  const all = await getAllPromoCodes();
+  if (isSupabaseConfigured() && supabase) {
+    const { error } = await supabase.from('promo_codes').delete().eq('id', id);
+    if (error) {
+      console.error('Supabase deletePromoCode error:', error);
+      throw new Error(`Database Supabase: ${error.message}`);
+    }
+  }
+
+  const all = loadLocal<PromoCode[]>(STORAGE_KEYS.PROMO_CODES, INITIAL_PROMO_CODES);
   const filtered = all.filter((c) => c.id !== id);
   saveLocal(STORAGE_KEYS.PROMO_CODES, filtered);
+  notifyDataUpdated();
+}
+
+/**
+ * Manually confirms 1 or more coupon usages for a confirmed transaction.
+ * Permanently increments used_count in Supabase and local cache.
+ */
+export async function confirmUseCoupon(
+  promoId: string,
+  amount: number = 1
+): Promise<{ success: boolean; message: string; remainingQuota: number }> {
+  if (amount <= 0) {
+    return { success: false, message: 'Jumlah kupon harus lebih besar dari 0.', remainingQuota: 0 };
+  }
+
+  const all = await getAllPromoCodes();
+  const promo = all.find((p) => p.id === promoId);
+  if (!promo) {
+    return { success: false, message: 'Kode promo tidak ditemukan.', remainingQuota: 0 };
+  }
+
+  const quota = getPromoQuotaInfo(promo);
+  if (!quota.isUnlimited && quota.remainingQuota < amount) {
+    return {
+      success: false,
+      message: `Gagal: Kuota kupon tidak mencukupi. Sisa kuota hanya ${quota.remainingQuota} kupon.`,
+      remainingQuota: quota.remainingQuota
+    };
+  }
+
+  const newUsedCount = quota.usedCount + amount;
+  const newRemaining = quota.isUnlimited ? Infinity : Math.max(0, quota.maxUses - newUsedCount);
 
   if (isSupabaseConfigured() && supabase) {
-    await supabase.from('promo_codes').delete().eq('id', id);
+    const { error } = await supabase
+      .from('promo_codes')
+      .update({
+        used_count: newUsedCount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', promo.id);
+
+    if (error) {
+      console.error('Supabase confirmUseCoupon error:', error);
+      throw new Error(`Database Supabase: ${error.message}`);
+    }
   }
+
+  promo.usedCount = newUsedCount;
+  saveLocal(STORAGE_KEYS.PROMO_CODES, all);
+  notifyDataUpdated();
+
+  return {
+    success: true,
+    message: `Transaksi berhasil dikonfirmasi (${amount} kupon digunakan). Sisa kuota: ${newRemaining} kupon.`,
+    remainingQuota: newRemaining
+  };
+}
+
+/**
+ * Manually restores 1 or more coupon usages if a transaction was canceled.
+ * Permanently decrements used_count in Supabase and local cache.
+ */
+export async function restoreCoupon(
+  promoId: string,
+  amount: number = 1
+): Promise<{ success: boolean; message: string; remainingQuota: number }> {
+  if (amount <= 0) {
+    return { success: false, message: 'Jumlah kupon harus lebih besar dari 0.', remainingQuota: 0 };
+  }
+
+  const all = await getAllPromoCodes();
+  const promo = all.find((p) => p.id === promoId);
+  if (!promo) {
+    return { success: false, message: 'Kode promo tidak ditemukan.', remainingQuota: 0 };
+  }
+
+  const quota = getPromoQuotaInfo(promo);
+  if (quota.usedCount <= 0) {
+    return {
+      success: false,
+      message: 'Gagal: Tidak ada kupon yang terpakai untuk dikembalikan (kuota terpakai = 0).',
+      remainingQuota: quota.remainingQuota
+    };
+  }
+
+  const restoreActual = Math.min(quota.usedCount, amount);
+  const newUsedCount = Math.max(0, quota.usedCount - restoreActual);
+  const newRemaining = quota.isUnlimited ? Infinity : Math.max(0, quota.maxUses - newUsedCount);
+
+  if (isSupabaseConfigured() && supabase) {
+    const { error } = await supabase
+      .from('promo_codes')
+      .update({
+        used_count: newUsedCount,
+        updated_at: new Date().toISOString()
+      })
+      .eq('id', promo.id);
+
+    if (error) {
+      console.error('Supabase restoreCoupon error:', error);
+      throw new Error(`Database Supabase: ${error.message}`);
+    }
+  }
+
+  promo.usedCount = newUsedCount;
+  saveLocal(STORAGE_KEYS.PROMO_CODES, all);
+  notifyDataUpdated();
+
+  return {
+    success: true,
+    message: `${restoreActual} kupon berhasil dikembalikan. Sisa kuota: ${newRemaining} kupon.`,
+    remainingQuota: newRemaining
+  };
 }
 
 export async function getAllFaqs(): Promise<FaqItem[]> {

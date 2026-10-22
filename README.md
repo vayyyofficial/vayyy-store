@@ -129,7 +129,7 @@ VITE_SUPABASE_ANON_KEY=your-supabase-anon-key
 # 2. Kontak & Komunitas
 VITE_WHATSAPP_NUMBER=6285816300442
 VITE_DISCORD_URL=https://discord.gg/S8vcsZtgRM
-VITE_VAYYY_DEV_URL=https://vayyy.dev
+VITE_VAYYY_DEV_URL=https://vayyy.vercel.app
 ```
 
 ---
